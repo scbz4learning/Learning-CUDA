@@ -3,6 +3,17 @@
 
 #include "../tester/utils.h"
 
+__global__ void trace_kernel(T* A, size_t N, T *p) {
+	const size_t i = blockDim.x * blockIdx.x + threadIdx.x;
+	const size_t j = blockDim.y * blockIdx.y + threadIdx.y;
+	double sum = 0.0lf;
+	if (i == j && i < N) {
+		sum += static_cast<double>(A[i][j]);
+	}
+	*p = static_cast<T>(sum);
+
+}
+
 /**
  * @brief Computes the trace of a matrix.
  *
@@ -20,6 +31,18 @@
 template <typename T>
 T trace(const std::vector<T>& h_input, size_t rows, size_t cols) {
   // TODO: Implement the trace function
+  const size_t N = rows<cols?rows:cols;
+  dim3 grid_size(16, 16);
+  dim3 block_size(
+		  (N+grid_size.x-1)/grid_size.x,
+		  (N+grid_size.y-1)/grid_size.y
+		 );
+  T* h;
+  RUNTIME_CHECK(cudaMalloc(h, N * N * sizeof(T)));
+  RUNTIME_CHECK(cudaMemcpy(h, h_input, N * N * sizeof(T), cudaMemcpyHostToDevice));
+
+  trace_kernel<<<grid_size, block_size>>>(h, )
+
   return T(-1);
 }
 
