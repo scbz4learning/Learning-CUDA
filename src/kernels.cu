@@ -1,17 +1,15 @@
 #include <vector>
 #include <cuda_fp16.h>
+#include <iostream>
 
 #include "../tester/utils.h"
 
-__global__ void trace_kernel(T* A, size_t N, T *p) {
+template <typename T>
+__global__ void trace_kernel(T* A, size_t N, size_t SIZE, double *p) {
 	const size_t i = blockDim.x * blockIdx.x + threadIdx.x;
-	const size_t j = blockDim.y * blockIdx.y + threadIdx.y;
-	double sum = 0.0lf;
-	if (i == j && i < N) {
-		sum += static_cast<double>(A[i][j]);
+	if (i < SIZE && i % (N+1) == 0) {
+		*p += static_cast<double>(A[i]);
 	}
-	*p = static_cast<T>(sum);
-
 }
 
 /**
@@ -31,19 +29,32 @@ __global__ void trace_kernel(T* A, size_t N, T *p) {
 template <typename T>
 T trace(const std::vector<T>& h_input, size_t rows, size_t cols) {
   // TODO: Implement the trace function
-  const size_t N = rows<cols?rows:cols;
-  dim3 grid_size(16, 16);
+  if (rows == 0 || cols == 0)
+    return T(0);
+  const size_t N = rows<cols ? rows : cols;
+  const size_t SIZE = rows*cols;
+  dim3 grid_size(256);
   dim3 block_size(
-		  (N+grid_size.x-1)/grid_size.x,
-		  (N+grid_size.y-1)/grid_size.y
+		  (N+grid_size.x-1)/grid_size.x
 		 );
-  T* h;
-  RUNTIME_CHECK(cudaMalloc(h, N * N * sizeof(T)));
-  RUNTIME_CHECK(cudaMemcpy(h, h_input, N * N * sizeof(T), cudaMemcpyHostToDevice));
 
-  trace_kernel<<<grid_size, block_size>>>(h, )
+  T* d_input;
+  RUNTIME_CHECK(cudaMalloc((void**) &d_input, SIZE * sizeof(T)));
+  RUNTIME_CHECK(cudaMemcpy(d_input, h_input.data(), SIZE * sizeof(T), cudaMemcpyHostToDevice));
 
-  return T(-1);
+  double *p;
+  RUNTIME_CHECK(cudaMalloc((void**) &p, sizeof(double)));
+  RUNTIME_CHECK(cudaMemset(p, 0, sizeof(double)));
+
+  trace_kernel<<<grid_size,block_size>>>(d_input, N, SIZE, p);
+
+  double ans;
+  RUNTIME_CHECK(cudaMemcpy(&ans, p, sizeof(double), cudaMemcpyDeviceToHost));
+
+  RUNTIME_CHECK(cudaFree(d_input));
+  RUNTIME_CHECK(cudaFree(p));
+
+  return static_cast<T>(ans);
 }
 
 /**
