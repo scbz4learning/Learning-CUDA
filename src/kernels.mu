@@ -64,12 +64,12 @@ T trace(const std::vector<T>& h_input, size_t rows, size_t cols) {
     // 显然这个是个访存密集型的
     // 先在 cpu 端筛选数据肯定效果比直接传在 gpu 端筛选好很多
     T* d_diags = nullptr;
-    RUNTIME_CHECK(cudaMalloc((void**)&d_diags, N * sizeof(T)));
-    RUNTIME_CHECK(cudaMemcpy(d_diags, h_diags.data(), N * sizeof(T), cudaMemcpyHostToDevice));
+    RUNTIME_CHECK(musaMalloc((void**)&d_diags, N * sizeof(T)));
+    RUNTIME_CHECK(musaMemcpy(d_diags, h_diags.data(), N * sizeof(T), musaMemcpyHostToDevice));
 
     T* d_out = nullptr;
-    RUNTIME_CHECK(cudaMalloc((void**)&d_out, sizeof(T)));
-    RUNTIME_CHECK(cudaMemset(d_out, 0, sizeof(T)));
+    RUNTIME_CHECK(musaMalloc((void**)&d_out, sizeof(T)));
+    RUNTIME_CHECK(musaMemset(d_out, 0, sizeof(T)));
 
     int block_size = 256;
     int grid_size = (int)((N + block_size - 1) / block_size);
@@ -77,14 +77,14 @@ T trace(const std::vector<T>& h_input, size_t rows, size_t cols) {
 
     size_t smem_size = block_size * sizeof(T);
     trace_kernel<<<grid_size, block_size, smem_size>>>(d_diags, N, d_out);
-    RUNTIME_CHECK(cudaGetLastError());
-    RUNTIME_CHECK(cudaDeviceSynchronize());
+    RUNTIME_CHECK(musaGetLastError());
+    RUNTIME_CHECK(musaDeviceSynchronize());
 
     T ans;
-    RUNTIME_CHECK(cudaMemcpy(&ans, d_out, sizeof(T), cudaMemcpyDeviceToHost));
+    RUNTIME_CHECK(musaMemcpy(&ans, d_out, sizeof(T), musaMemcpyDeviceToHost));
 
-    RUNTIME_CHECK(cudaFree(d_diags));
-    RUNTIME_CHECK(cudaFree(d_out));
+    RUNTIME_CHECK(musaFree(d_diags));
+    RUNTIME_CHECK(musaFree(d_out));
 
     return ans;
 }
@@ -397,15 +397,15 @@ void flashAttention(const std::vector<T>& h_q, const std::vector<T>& h_k,
 
     T *d_q, *d_k, *d_v, *d_o;
 
-    RUNTIME_CHECK(cudaMalloc((void**)&d_q, q_size * sizeof(T)));
-    RUNTIME_CHECK(cudaMalloc((void**)&d_k, k_size * sizeof(T)));
-    RUNTIME_CHECK(cudaMalloc((void**)&d_v, v_size * sizeof(T)));
-    RUNTIME_CHECK(cudaMalloc((void**)&d_o, o_size * sizeof(T)));
+    RUNTIME_CHECK(musaMalloc((void**)&d_q, q_size * sizeof(T)));
+    RUNTIME_CHECK(musaMalloc((void**)&d_k, k_size * sizeof(T)));
+    RUNTIME_CHECK(musaMalloc((void**)&d_v, v_size * sizeof(T)));
+    RUNTIME_CHECK(musaMalloc((void**)&d_o, o_size * sizeof(T)));
 
-    RUNTIME_CHECK(cudaMemcpy(d_q, h_q.data(), q_size * sizeof(T), cudaMemcpyHostToDevice));
-    RUNTIME_CHECK(cudaMemcpy(d_k, h_k.data(), k_size * sizeof(T), cudaMemcpyHostToDevice));
-    RUNTIME_CHECK(cudaMemcpy(d_v, h_v.data(), v_size * sizeof(T), cudaMemcpyHostToDevice));
-    RUNTIME_CHECK(cudaMemset(d_o, 0, o_size * sizeof(T)));
+    RUNTIME_CHECK(musaMemcpy(d_q, h_q.data(), q_size * sizeof(T), musaMemcpyHostToDevice));
+    RUNTIME_CHECK(musaMemcpy(d_k, h_k.data(), k_size * sizeof(T), musaMemcpyHostToDevice));
+    RUNTIME_CHECK(musaMemcpy(d_v, h_v.data(), v_size * sizeof(T), musaMemcpyHostToDevice));
+    RUNTIME_CHECK(musaMemset(d_o, 0, o_size * sizeof(T)));
 
     // block size 是定死的, 就是一个 tile 的大小
     dim3 block(BLOCK_SIZE, BLOCK_SIZE);
@@ -430,13 +430,13 @@ void flashAttention(const std::vector<T>& h_q, const std::vector<T>& h_k,
         query_heads, kv_heads, head_dim, is_causal
     );
     
-    RUNTIME_CHECK(cudaDeviceSynchronize());
-    RUNTIME_CHECK(cudaMemcpy(h_o.data(), d_o, o_size * sizeof(T), cudaMemcpyDeviceToHost));
+    RUNTIME_CHECK(musaDeviceSynchronize());
+    RUNTIME_CHECK(musaMemcpy(h_o.data(), d_o, o_size * sizeof(T), musaMemcpyDeviceToHost));
 
-    RUNTIME_CHECK(cudaFree(d_q));
-    RUNTIME_CHECK(cudaFree(d_k));
-    RUNTIME_CHECK(cudaFree(d_v));
-    RUNTIME_CHECK(cudaFree(d_o));
+    RUNTIME_CHECK(musaFree(d_q));
+    RUNTIME_CHECK(musaFree(d_k));
+    RUNTIME_CHECK(musaFree(d_v));
+    RUNTIME_CHECK(musaFree(d_o));
 }
 
 #undef BLOCK_SIZE
