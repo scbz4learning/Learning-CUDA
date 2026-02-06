@@ -18,7 +18,7 @@
  * @return The trace (sum of diagonal values) of the matrix.
  */
 
- // 复用课上的 smem-tree 方法.
+// 复用课上的 smem-tree 方法.
 // ncu 不能用 (错误提示需要独占设备才能使用)
 template <typename T>
 __global__ void trace_kernel(const T* input, size_t N, T* output) {
