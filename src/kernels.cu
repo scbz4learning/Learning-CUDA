@@ -1,15 +1,32 @@
 #include <vector>
 #include <cuda_fp16.h>
-#include <iostream>
 
 #include "../tester/utils.h"
 
 template <typename T>
-__global__ void trace_kernel(T* A, size_t N, size_t SIZE, double *p) {
-	const size_t i = blockDim.x * blockIdx.x + threadIdx.x;
-	if (i < SIZE && i % (N+1) == 0) {
-		*p += static_cast<double>(A[i]);
-	}
+__global__ void trace_kernel(const T* input, size_t N, T* output) {
+  // 编译报错: extern __shared__ 不能直接用模板类型 T
+  // 借助 AI 修复
+    extern __shared__ unsigned char smem_raw[]; 
+    T* smem = reinterpret_cast<T*>(smem_raw);
+
+    unsigned int tid = threadIdx.x;
+    unsigned int idx = blockIdx.x * blockDim.x + tid;
+
+    smem[tid] = (idx < N) ? input[idx] : T(0);
+    __syncthreads();
+
+    // tree-based reduction
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            smem[tid] += smem[tid + s];
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        atomicAdd(output, smem[0]);
+    }
 }
 
 /**
@@ -28,33 +45,42 @@ __global__ void trace_kernel(T* A, size_t N, size_t SIZE, double *p) {
  */
 template <typename T>
 T trace(const std::vector<T>& h_input, size_t rows, size_t cols) {
-  // TODO: Implement the trace function
+  // 编译期检查，只允许 float 或 int
+    static_assert(std::is_same<T, float>::value || std::is_same<T, int>::value,
+                  "trace() only supports float or int types.");
+                  
   if (rows == 0 || cols == 0)
     return T(0);
-  const size_t N = rows<cols ? rows : cols;
-  const size_t SIZE = rows*cols;
-  dim3 grid_size(256);
-  dim3 block_size(
-		  (N+grid_size.x-1)/grid_size.x
-		 );
+  const size_t N = std::min(rows, cols);
+  std::vector<T> h_diags(N);
+  for (size_t i = 0; i < N; i++) {
+    h_diags[i] = h_input[i * cols + i];
+  }
 
-  T* d_input;
-  RUNTIME_CHECK(cudaMalloc((void**) &d_input, SIZE * sizeof(T)));
-  RUNTIME_CHECK(cudaMemcpy(d_input, h_input.data(), SIZE * sizeof(T), cudaMemcpyHostToDevice));
+  T* d_diags = nullptr;
+  RUNTIME_CHECK(cudaMalloc((void**) &d_diags, N * sizeof(T)));
+  RUNTIME_CHECK(cudaMemcpy(d_diags, h_diags.data(), N * sizeof(T), cudaMemcpyHostToDevice));
 
-  double *p;
-  RUNTIME_CHECK(cudaMalloc((void**) &p, sizeof(double)));
-  RUNTIME_CHECK(cudaMemset(p, 0, sizeof(double)));
+  T* d_out = nullptr;
+  RUNTIME_CHECK(cudaMalloc((void**) &d_out, sizeof(T)));
+  RUNTIME_CHECK(cudaMemset(d_out, 0, sizeof(T)));
 
-  trace_kernel<<<grid_size,block_size>>>(d_input, N, SIZE, p);
+  int block_size = 256;
+  int grid_size = (int)((N + block_size - 1) / block_size);
+  if (grid_size < 1) grid_size = 1;
 
-  double ans;
-  RUNTIME_CHECK(cudaMemcpy(&ans, p, sizeof(double), cudaMemcpyDeviceToHost));
+  size_t smem_size = block_size * sizeof(T);
+  trace_kernel<<<grid_size, block_size, smem_size>>>(d_diags, N, d_out);
+  RUNTIME_CHECK(cudaGetLastError());
+  RUNTIME_CHECK(cudaDeviceSynchronize());
 
-  RUNTIME_CHECK(cudaFree(d_input));
-  RUNTIME_CHECK(cudaFree(p));
+  T ans;
+  RUNTIME_CHECK(cudaMemcpy(&ans, d_out, sizeof(T), cudaMemcpyDeviceToHost));
 
-  return static_cast<T>(ans);
+  RUNTIME_CHECK(cudaFree(d_diags));
+  RUNTIME_CHECK(cudaFree(d_out));
+
+  return ans;
 }
 
 /**
